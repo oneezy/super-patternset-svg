@@ -27,7 +27,6 @@
     "promise-polyfill": "polymerlabs/promise-polyfill#^1.0.0",
     "web-component-tester": "^4.0.0",
     "webcomponentsjs": "webcomponents/webcomponentsjs#^0.7.0",
-    "super-patternset-svg": "oneezy/super-patternset-svg#^0.1.0",
     "super-pattern": "oneezy/super-pattern#^0.1.0"
   },
   "homepage": "https://github.com/oneezy/super-patternset-svg"
