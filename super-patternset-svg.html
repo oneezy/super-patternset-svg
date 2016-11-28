@@ -1,0 +1,241 @@
+<!--
+@license
+Copyright (c) 2015 The Polymer Project Authors. All rights reserved.
+This code may only be used under the BSD style license found at http://polymer.github.io/LICENSE.txt
+The complete set of authors may be found at http://polymer.github.io/AUTHORS.txt
+The complete set of contributors may be found at http://polymer.github.io/CONTRIBUTORS.txt
+Code distributed by Google as part of the polymer project is also
+subject to an additional IP rights grant found at http://polymer.github.io/PATENTS.txt
+-->
+
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../iron-meta/iron-meta.html">
+
+<script>
+  /**
+   * The `super-patternset-svg` element allows users to define their own pattern sets
+   * that contain svg patterns. The svg pattern elements should be children of the
+   * `super-patternset-svg` element. Multiple patterns should be given distinct id's.
+   *
+   * Using svg elements to create patterns has a few advantages over traditional
+   * bitmap graphics like jpg or png. patterns that use svg are vector based so
+   * they are resolution independent and should look good on any device. They
+   * are stylable via css. patterns can be themed, colorized, and even animated.
+   *
+   * Example:
+   *
+   *     <super-patternset-svg name="my-svg-patterns" size="24">
+   *       <svg>
+   *         <defs>
+   *           <g id="shape">
+   *             <rect x="12" y="0" width="12" height="24" />
+   *             <circle cx="12" cy="12" r="12" />
+   *           </g>
+   *         </defs>
+   *       </svg>
+   *     </super-patternset-svg>
+   *
+   * This will automatically register the pattern set "my-svg-patterns" to the patternset
+   * database.  To use these patterns from within another element, make a
+   * `super-patternset` element and call the `byId` method
+   * to retrieve a given patternset. To apply a particular pattern inside an
+   * element use the `applypattern` method. For example:
+   *
+   *     patternset.applypattern(patternNode, 'car');
+   *
+   * @element super-patternset-svg
+   * @demo demo/index.html
+   * @implements {Polymer.patternset}
+   */
+  Polymer({
+    is: 'super-patternset-svg',
+
+    properties: {
+
+      /**
+       * The name of the patternset.
+       */
+      name: {
+        type: String,
+        observer: '_nameChanged'
+      },
+
+      /**
+       * The size of an individual pattern. Note that patterns must be square.
+       */
+      size: {
+        type: Number,
+        value: 24
+      },
+
+      /**
+       * Set to true to enable mirroring of patterns where specified when they are
+       * stamped. patterns that should be mirrored should be decorated with a
+       * `mirror-in-rtl` attribute.
+       *
+       * NOTE: For performance reasons, direction will be resolved once per
+       * document per patternset, so moving patterns in and out of RTL subtrees will
+       * not cause their mirrored state to change.
+       */
+      rtlMirroring: {
+        type: Boolean,
+        value: false
+      }
+    },
+
+    attached: function() {
+      this.style.display = 'none';
+    },
+
+    /**
+     * Construct an array of all pattern names in this patternset.
+     *
+     * @return {!Array} Array of pattern names.
+     */
+    getpatternNames: function() {
+      this._patterns = this._createpatternMap();
+      return Object.keys(this._patterns).map(function(n) {
+        return this.name + ':' + n;
+      }, this);
+    },
+
+    /**
+     * Applies an pattern to the given element.
+     *
+     * An svg pattern is prepended to the element's shadowRoot if it exists,
+     * otherwise to the element itself.
+     *
+     * If RTL mirroring is enabled, and the pattern is marked to be mirrored in
+     * RTL, the element will be tested (once and only once ever for each
+     * patternset) to determine the direction of the subtree the element is in.
+     * This direction will apply to all future pattern applications, although only
+     * patterns marked to be mirrored will be affected.
+     *
+     * @method applypattern
+     * @param {Element} element Element to which the pattern is applied.
+     * @param {string} patternName Name of the pattern to apply.
+     * @return {?Element} The svg element which renders the pattern.
+     */
+    applypattern: function(element, patternName) {
+      // insert svg element into shadow root, if it exists
+      element = element.root || element;
+      // Remove old svg element
+      this.removepattern(element);
+      // install new svg element
+      var svg = this._clonepattern(patternName,
+          this.rtlMirroring && this._targetIsRTL(element));
+      if (svg) {
+        var pde = Polymer.dom(element);
+        pde.insertBefore(svg, pde.childNodes[0]);
+        return element._svgpattern = svg;
+      }
+      return null;
+    },
+
+    /**
+     * Remove an pattern from the given element by undoing the changes effected
+     * by `applypattern`.
+     *
+     * @param {Element} element The element from which the pattern is removed.
+     */
+    removepattern: function(element) {
+      // Remove old svg element
+      element = element.root || element;
+      if (element._svgpattern) {
+        Polymer.dom(element).removeChild(element._svgpattern);
+        element._svgpattern = null;
+      }
+    },
+
+    /**
+     * Measures and memoizes the direction of the element. Note that this
+     * measurement is only done once and the result is memoized for future
+     * invocations.
+     */
+    _targetIsRTL: function(target) {
+      if (this.__targetIsRTL == null) {
+        if (target && target.nodeType !== Node.ELEMENT_NODE) {
+          target = target.host;
+        }
+
+        this.__targetIsRTL = target &&
+            window.getComputedStyle(target)['direction'] === 'rtl';
+      }
+
+      return this.__targetIsRTL;
+    },
+
+    /**
+     *
+     * When name is changed, register patternset metadata
+     *
+     */
+    _nameChanged: function() {
+      new Polymer.IronMeta({type: 'patternset', key: this.name, value: this});
+      this.async(function() {
+        this.fire('super-patternset-added', this, {node: window});
+      });
+    },
+
+    /**
+     * Create a map of child SVG elements by id.
+     *
+     * @return {!Object} Map of id's to SVG elements.
+     */
+    _createpatternMap: function() {
+      // Objects chained to Object.prototype (`{}`) have members. Specifically,
+      // on FF there is a `watch` method that confuses the pattern map, so we
+      // need to use a null-based object here.
+      var patterns = Object.create(null);
+      Polymer.dom(this).querySelectorAll('[id]')
+        .forEach(function(pattern) {
+          patterns[pattern.id] = pattern;
+        });
+      return patterns;
+    },
+
+    /**
+     * Produce installable clone of the SVG element matching `id` in this
+     * patternset, or `undefined` if there is no matching element.
+     *
+     * @return {Element} Returns an installable clone of the SVG element
+     * matching `id`.
+     */
+    _clonepattern: function(id, mirrorAllowed) {
+      // create the pattern map on-demand, since the patternset itself has no discrete
+      // signal to know when it's children are fully parsed
+      this._patterns = this._patterns || this._createpatternMap();
+      return this._prepareSvgClone(this._patterns[id], this.size, mirrorAllowed);
+    },
+
+    /**
+     * @param {Element} sourceSvg
+     * @param {number} size
+     * @param {Boolean} mirrorAllowed
+     * @return {Element}
+     */
+    _prepareSvgClone: function(sourceSvg, size, mirrorAllowed) {
+      if (sourceSvg) {
+        var content = sourceSvg.cloneNode(true),
+            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'),
+            viewBox = content.getAttribute('viewBox') || '0 0 ' + size + ' ' + size,
+            cssText = 'pointer-events: none; display: block; width: 100%; height: 100%;';
+
+        if (mirrorAllowed && content.hasAttribute('mirror-in-rtl')) {
+          cssText += '-webkit-transform:scale(-1,1);transform:scale(-1,1);';
+        }
+
+        svg.setAttribute('viewBox', viewBox);
+        svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        // TODO(dfreedm): `pointer-events: none` works around https://crbug.com/370136
+        // TODO(sjmiles): inline style may not be ideal, but avoids requiring a shadow-root
+        svg.style.cssText = cssText;
+        svg.appendChild(content).removeAttribute('id');
+        return svg;
+      }
+      return null;
+    }
+
+  });
+
+</script>
